@@ -1,0 +1,790 @@
+import Head from 'next/head'
+import { useState, useEffect, useRef, useCallback } from 'react'
+
+// ─── Constantes ───────────────────────────────────────────────
+const TAXA_PRAZO = 0.10
+const prazoPreco = (v) => Number(v) * (1 + TAXA_PRAZO)
+const fmtBRL = (v) => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtDate = (d) => d.toLocaleDateString('pt-BR')
+const pad = (n) => String(n).padStart(2, '0')
+
+const CAT_ICONS = {
+  'Placa-Mãe': '🔧', 'Processador': '⚡', 'Memória RAM': '💾',
+  'Placa de Vídeo': '🎮', 'Armazenamento': '💿', 'Fonte': '🔌',
+  'Gabinete': '🖥', 'Cooler': '❄️', 'Monitor': '🖥', 'Teclado': '⌨️',
+  'Mouse': '🖱', 'Headset': '🎧', 'Webcam': '📸', 'Mousepad': '🖱',
+  'Notebook': '💻', 'Smartphone': '📱', 'Montagem': '🛠',
+  'Instalação SO': '💾', 'Manutenção': '🔩', 'Acessório': '🔗', 'Outro': '📦',
+}
+
+const CATEGORIES = {
+  '🖥 Componentes PC': ['Placa-Mãe','Processador','Memória RAM','Placa de Vídeo','Armazenamento','Fonte','Gabinete','Cooler'],
+  '🖱 Periféricos': ['Monitor','Teclado','Mouse','Headset','Webcam','Mousepad'],
+  '💻 Portáteis': ['Notebook','Smartphone'],
+  '🔧 Serviços': ['Montagem','Instalação SO','Manutenção'],
+  '📦 Outros': ['Acessório','Outro'],
+}
+
+const STEPS = [
+  { key: 'Placa-Mãe',     label: 'Placa-Mãe',     icon: '🔧', sub: 'Base do setup — define compatibilidade', required: true  },
+  { key: 'Processador',   label: 'Processador',   icon: '⚡', sub: 'O cérebro do computador',                required: true  },
+  { key: 'Memória RAM',   label: 'Memória RAM',   icon: '💾', sub: 'Velocidade e multitarefa',               required: true  },
+  { key: 'Placa de Vídeo',label: 'Placa de Vídeo',icon: '🎮', sub: 'Games, design e renderização',           required: false },
+  { key: 'Armazenamento', label: 'Armazenamento', icon: '💿', sub: 'SSD ou HD — rápido e capacidade',        required: true  },
+  { key: 'Fonte',         label: 'Fonte',         icon: '🔌', sub: 'Alimente tudo com segurança',            required: true  },
+  { key: 'Gabinete',      label: 'Gabinete',      icon: '🖥', sub: 'Visual e ventilação do setup',           required: false },
+  { key: 'Cooler',        label: 'Cooler',        icon: '❄️', sub: 'Temperaturas sob controle',             required: false },
+  { key: 'Monitor',       label: 'Monitor',       icon: '🖥', sub: 'A janela do setup',                     required: false },
+  { key: 'Teclado',       label: 'Teclado',       icon: '⌨️', sub: 'Periférico de entrada',                required: false },
+  { key: 'Mouse',         label: 'Mouse',         icon: '🖱', sub: 'Precisão nos movimentos',               required: false },
+  { key: 'Headset',       label: 'Headset',       icon: '🎧', sub: 'Áudio imersivo',                       required: false },
+  { key: 'Montagem',      label: 'Montagem',      icon: '🛠', sub: 'Montagem profissional Easy Tech',       required: false },
+]
+
+// ─── Componente principal ─────────────────────────────────────
+export default function Home() {
+  const [tab, setTab] = useState('builder')
+  const [catalog, setCatalog] = useState([])
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState({ text: 'Carregando…', color: '#f59e0b' })
+  const [toast, setToast] = useState('')
+  const nextId = useRef(1)
+
+  // ── Builder state
+  const [step, setStep] = useState(0)
+  const [cart, setCart] = useState({})
+  const [search, setSearch] = useState('')
+  const [avNome, setAvNome] = useState('')
+  const [avPreco, setAvPreco] = useState('')
+  const [discPct, setDiscPct] = useState('')
+  const [discVal, setDiscVal] = useState('')
+  const [cli, setCli] = useState({ nome: '', tel: '', email: '', obs: '' })
+
+  // ── Catalog form state
+  const [form, setForm] = useState({ nome:'', cat:'Placa-Mãe', marca:'', desc:'', stock:'1', custo:'', preco:'' })
+
+  // ── Toast
+  const showToast = useCallback((msg) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2500)
+  }, [])
+
+  // ── Sync status
+  const setSync = useCallback((text, color = '#22c55e') => setSyncMsg({ text, color }), [])
+
+  // ── API calls ─────────────────────────────────────────────
+  const loadCatalog = useCallback(async () => {
+    setSyncing(true)
+    setSync('Carregando…', '#f59e0b')
+    try {
+      const res = await fetch('/api/produtos')
+      const data = await res.json()
+      if (Array.isArray(data)) {
+        const normalized = data.map(p => ({ ...p, prazo: p.prazo || prazoPreco(p.preco) }))
+        setCatalog(normalized)
+        const maxId = normalized.reduce((m, p) => Math.max(m, Number(p.id) || 0), 0)
+        nextId.current = maxId + 1
+        setSync(`${normalized.length} produtos`, '#22c55e')
+      }
+    } catch {
+      setSync('Erro de conexão', '#ef4444')
+    } finally {
+      setSyncing(false)
+    }
+  }, [setSync])
+
+  useEffect(() => { loadCatalog() }, [loadCatalog])
+
+  const apiAddProduct = async (produto) => {
+    try {
+      await fetch('/api/produtos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(produto),
+      })
+      setSync(`Salvo: ${produto.nome}`, '#22c55e')
+    } catch {
+      setSync('Erro ao salvar', '#ef4444')
+    }
+  }
+
+  const apiDeleteProduct = async (id) => {
+    try {
+      await fetch(`/api/produtos/${id}`, { method: 'DELETE' })
+      setSync('Removido', '#22c55e')
+    } catch {
+      setSync('Erro ao remover', '#ef4444')
+    }
+  }
+
+  // ── Catalog actions ───────────────────────────────────────
+  const addProduct = async () => {
+    if (!form.nome.trim() || !form.preco) {
+      showToast('⚠️ Nome e preço à vista são obrigatórios')
+      return
+    }
+    const preco = parseFloat(form.preco)
+    const produto = {
+      id: nextId.current++,
+      nome: form.nome.trim(),
+      cat: form.cat,
+      marca: form.marca.trim(),
+      desc: form.desc.trim(),
+      stock: parseInt(form.stock) || 0,
+      custo: parseFloat(form.custo) || 0,
+      preco,
+      prazo: prazoPreco(preco),
+    }
+    setCatalog(c => [...c, produto])
+    setForm(f => ({ ...f, nome: '', marca: '', desc: '', stock: '1', custo: '', preco: '' }))
+    showToast(`✅ ${produto.nome} adicionado!`)
+    await apiAddProduct(produto)
+  }
+
+  const deleteProduct = async (id) => {
+    const p = catalog.find(c => c.id === id)
+    setCatalog(c => c.filter(x => x.id !== id))
+    showToast('🗑 Removido')
+    await apiDeleteProduct(id)
+  }
+
+  // ── Builder actions ───────────────────────────────────────
+  const selectProd = (prodId) => {
+    const s = STEPS[step]
+    const prod = catalog.find(p => p.id === prodId)
+    if (!prod) return
+    setCart(c => {
+      const nc = { ...c }
+      if (nc[s.key]?.prodId === prodId) delete nc[s.key]
+      else nc[s.key] = {
+        prodId, nome: prod.nome, preco: prod.preco,
+        prazo: prod.prazo || prazoPreco(prod.preco),
+        desc: prod.desc, marca: prod.marca, cat: s.key, avulso: false,
+      }
+      return nc
+    })
+    setSearch('')
+  }
+
+  const addAvulso = () => {
+    if (!avNome.trim() || !avPreco) { showToast('⚠️ Preencha nome e valor'); return }
+    const preco = parseFloat(avPreco)
+    const s = STEPS[step]
+    setCart(c => ({ ...c, [s.key]: { prodId: null, nome: avNome.trim(), preco, prazo: prazoPreco(preco), desc: '', marca: '', cat: s.label, avulso: true } }))
+    setAvNome(''); setAvPreco('')
+    showToast(`✅ ${avNome} adicionado`)
+  }
+
+  const removeCart = (key) => setCart(c => { const nc = { ...c }; delete nc[key]; return nc })
+
+  // ── Totais ────────────────────────────────────────────────
+  const cartItems = STEPS.filter(s => cart[s.key]).map(s => ({ ...cart[s.key], stepLabel: s.label, icon: s.icon }))
+  const subtotal = cartItems.reduce((a, c) => a + c.preco, 0)
+  const subtotalPrazo = cartItems.reduce((a, c) => a + (c.prazo || prazoPreco(c.preco)), 0)
+  const desconto = Math.max(parseFloat(discVal) || 0, subtotal * (parseFloat(discPct) || 0) / 100)
+  const total = Math.max(0, subtotal - desconto)
+  const totalPrazo = Math.max(0, subtotalPrazo - desconto * (1 + TAXA_PRAZO))
+
+  // ── Progress ──────────────────────────────────────────────
+  const done = STEPS.filter(s => cart[s.key]).length
+  const progPct = Math.round((done / STEPS.length) * 100)
+
+  // ── Produtos do step atual ────────────────────────────────
+  const stepProds = catalog.filter(p =>
+    p.cat === STEPS[step].key &&
+    (p.nome?.toLowerCase().includes(search.toLowerCase()) ||
+     (p.marca || '').toLowerCase().includes(search.toLowerCase()) ||
+     (p.desc || '').toLowerCase().includes(search.toLowerCase()))
+  )
+
+  // ── PDF — layout dark (jsPDF) ─────────────────────────────
+  const exportPDF = async () => {
+    if (!cartItems.length) { showToast('⚠️ Adicione itens ao orçamento'); return }
+
+    // Carrega jsPDF dinamicamente (não precisa instalar — CDN via script)
+    if (!window.jspdf) {
+      await new Promise((resolve, reject) => {
+        const s = document.createElement('script')
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+        s.onload = resolve; s.onerror = reject
+        document.head.appendChild(s)
+      })
+    }
+
+    const { jsPDF } = window.jspdf
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' })
+    const W = 595, H = 842
+    const M = 28  // margin
+
+    // ── helpers ──
+    const hex = (h) => {
+      const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16)
+      return [r/255, g/255, b/255]
+    }
+    const fill  = (h) => doc.setFillColor(...hex(h))
+    const stroke= (h) => doc.setDrawColor(...hex(h))
+    const color = (h) => doc.setTextColor(...hex(h))
+    const rect  = (x,y,w,h,r=0) => r ? doc.roundedRect(x,y,w,h,r,r,'F') : doc.rect(x,y,w,h,'F')
+    const text  = (t,x,y,opts={}) => doc.text(t,x,y,opts)
+
+    // ── BG ──
+    fill('#0D0D0D'); rect(0,0,W,H)
+
+    // ── HEADER ──
+    const HDR_H = 110, hdrY = H - HDR_H
+    fill('#1A1A1A'); rect(0, hdrY, W, HDR_H)
+    fill('#22C55E'); rect(0, hdrY, W, 3)
+
+    // Logo
+    try {
+      const logoRes = await fetch('/logo.png')
+      const blob = await logoRes.blob()
+      const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(blob) })
+      doc.addImage(b64, 'PNG', M, hdrY + 14, 82, 82)
+    } catch {}
+
+    // Nome EASYTECH com tracking
+    doc.setFont('helvetica','bold'); doc.setFontSize(30)
+    fill('#22C55E'); color('#22C55E')
+    let cx = M + 100
+    for (const ch of 'EASYTECH') {
+      fill('#22C55E'); color('#22C55E')
+      text(ch, cx, hdrY + 64)
+      cx += doc.getTextWidth(ch) + 3
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(8)
+    color('#555555'); text('S T O R E', M + 100, hdrY + 78)
+
+    // Data
+    const nowDate = new Date()
+    const dateStr = fmtDate(nowDate)
+    doc.setFont('helvetica','normal'); doc.setFontSize(9)
+    color('#A0A0A0')
+    const dw = doc.getTextWidth(dateStr)
+    text(dateStr, W - M - dw, H - 16)
+
+    // ── CLIENTE ──
+    const CLI_H = 62, cliY = hdrY - CLI_H - 2
+    fill('#222222'); rect(0, cliY, W, CLI_H)
+    fill('#2A2A2A'); rect(0, cliY + CLI_H - 1, W, 1); rect(0, cliY, W, 1)
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5)
+    color('#555555')
+    text('CLIENTE', M, cliY + 36); text('TELEFONE', W/2, cliY + 36)
+    doc.setFont('helvetica','bold'); doc.setFontSize(13)
+    color('#F0F0F0')
+    text(cli.nome || 'CLIENTE', M, cliY + 52)
+    text(cli.tel  || '—',       W/2, cliY + 52)
+
+    // ── DESCRIÇÃO ──
+    const lblY = cliY - 44
+    fill('#22C55E'); color('#22C55E')
+    doc.setFont('helvetica','bold'); doc.setFontSize(10)
+    text('DESCRIÇÃO DO PRODUTO', M, lblY)
+    fill('#22C55E'); rect(M, lblY + 3, 162, 1.5)
+
+    const BOX_H = cartItems.length <= 3 ? 62 + (cartItems.length - 1) * 28 : 62 + (cartItems.length - 1) * 28
+    const boxY = lblY - BOX_H - 10
+    fill('#222222'); stroke('#2A2A2A')
+    doc.setLineWidth(1)
+    doc.roundedRect(M, boxY, W - 2*M, BOX_H, 5, 5, 'FD')
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(10)
+    color('#F0F0F0')
+    let itemY = boxY + 26
+    cartItems.forEach((item, i) => {
+      color('#22C55E')
+      doc.setFont('helvetica','bold'); doc.setFontSize(8)
+      text(`${item.icon || '▸'} ${item.stepLabel.toUpperCase()}`, M + 12, itemY - 10)
+      color('#F0F0F0')
+      doc.setFont('helvetica','bold'); doc.setFontSize(10)
+      text(item.nome + (item.marca ? ` — ${item.marca}` : ''), M + 12, itemY)
+      // Preço à direita
+      const prazo = item.prazo || prazoPreco(item.preco)
+      doc.setFont('helvetica','bold'); doc.setFontSize(10)
+      color('#22C55E')
+      const pw = doc.getTextWidth(fmtBRL(item.preco))
+      text(fmtBRL(item.preco), W - M - 12 - pw, itemY)
+      doc.setFont('helvetica','normal'); doc.setFontSize(8)
+      color('#A0A0A0')
+      const instStr = `12x ${fmtBRL(prazo/12)}`
+      const iw = doc.getTextWidth(instStr)
+      text(instStr, W - M - 12 - iw, itemY + 12)
+      if (i < cartItems.length - 1) {
+        fill('#2A2A2A'); rect(M + 12, itemY + 18, W - 2*M - 24, 0.5)
+      }
+      itemY += 32
+    })
+
+    // ── TOTAIS ──
+    const totY = boxY - 70
+    // Desconto
+    if (desconto > 0) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(9)
+      color('#A0A0A0'); text('Subtotal', M, totY + 14)
+      color('#A0A0A0')
+      const sw = doc.getTextWidth(fmtBRL(subtotal))
+      text(fmtBRL(subtotal), W - M - sw, totY + 14)
+      color('#22C55E'); text('Desconto', M, totY + 28)
+      const dw2 = doc.getTextWidth(`− ${fmtBRL(desconto)}`)
+      text(`− ${fmtBRL(desconto)}`, W - M - dw2, totY + 28)
+    }
+
+    // ── VALOR TOTAL — barra verde ──
+    const valH = 54, valY = totY - valH - 6
+    fill('#22C55E'); doc.roundedRect(M, valY, W - 2*M, valH, 27, 27, 'F')
+    doc.setFont('helvetica','bold'); doc.setFontSize(11)
+    color('#000000'); text('VALOR À VISTA', M + 26, valY + valH/2 + 4)
+    doc.setFontSize(18)
+    const vs = fmtBRL(total)
+    const vsw = doc.getTextWidth(vs)
+    text(vs, W - M - vsw - 26, valY + valH/2 + 6)
+    // Parcelamento abaixo
+    doc.setFont('helvetica','normal'); doc.setFontSize(9)
+    color('#A0A0A0')
+    const instTotal = `ou 12x de ${fmtBRL(totalPrazo/12)} (total ${fmtBRL(totalPrazo)})`
+    const itw = doc.getTextWidth(instTotal)
+    text(instTotal, W/2 - itw/2, valY - 8)
+
+    // Observações
+    if (cli.obs) {
+      doc.setFont('helvetica','normal'); doc.setFontSize(8)
+      color('#555555'); text(`Obs: ${cli.obs}`, M, valY - 22)
+    }
+
+    // ── FOOTER ──
+    const FTR_H = 72
+    fill('#1A1A1A'); rect(0, 0, W, FTR_H)
+    fill('#22C55E'); rect(0, FTR_H - 2, W, 2)
+
+    // Mini logo no footer
+    try {
+      const logoRes = await fetch('/logo.png')
+      const blob = await logoRes.blob()
+      const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(blob) })
+      doc.addImage(b64, 'PNG', M, 12, 44, 44)
+    } catch {}
+
+    doc.setFont('helvetica','bold'); doc.setFontSize(9)
+    color('#F0F0F0'); text('EASYTECH STORE', M + 54, 38)
+    doc.setFontSize(8); color('#22C55E')
+    text('INSTAGRAM: @EASYTECHSTORERS', M + 54, 50)
+    text('WHATSAPP: (54) 99137-0566',   M + 54, 60)
+    text('WWW.EASYTECHSTORE.COM.BR',     M + 54, 70)
+
+    // Validade
+    const validDate = new Date(nowDate); validDate.setDate(validDate.getDate() + 7)
+    doc.setFont('helvetica','normal'); doc.setFontSize(8)
+    color('#A0A0A0')
+    const vLabel = `VALIDADE DO ORCAMENTO: ${fmtDate(validDate)}`
+    const vlw = doc.getTextWidth(vLabel)
+    text(vLabel, W - M - vlw, 46)
+
+    // Número do orçamento
+    const numOrc = `ORC-${nowDate.getFullYear()}${pad(nowDate.getMonth()+1)}${pad(nowDate.getDate())}-${String(Math.floor(Math.random()*1000)).padStart(3,'0')}`
+    color('#555555'); doc.setFontSize(7)
+    text(numOrc, W - M - doc.getTextWidth(numOrc), 58)
+
+    doc.save(`Orcamento_EasyTech_${cli.nome ? cli.nome.replace(/\s+/g,'_') : 'cliente'}.pdf`)
+    showToast('📄 PDF gerado!')
+  }
+
+  const now = new Date()
+  const valid = new Date(now); valid.setDate(valid.getDate() + 7)
+  const numOrc = `ORC-${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}-${String(Math.floor(Math.random()*1000)).padStart(3,'0')}`
+
+  // ─────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────
+  return (
+    <>
+      <Head>
+        <title>Easy Tech — Monte seu PC</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="icon" href="/logo.png" />
+      </Head>
+
+      {/* Toast */}
+      <div style={{ position:'fixed', bottom:24, left:'50%', transform:`translateX(-50%) translateY(${toast?'0':'8px'})`, background:'var(--surface)', border:'1px solid var(--border2)', color:'var(--text)', padding:'10px 20px', borderRadius:50, fontSize:13, fontWeight:500, boxShadow:'0 8px 32px rgba(0,0,0,.6)', zIndex:999, opacity:toast?1:0, transition:'all .25s', pointerEvents:'none', whiteSpace:'nowrap' }}>
+        {toast}
+      </div>
+
+      {/* ══ HEADER ══ */}
+      <header className="no-print" style={{ height:60, background:'var(--surface)', borderBottom:'1px solid var(--border2)', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'0 24px', position:'sticky', top:0, zIndex:100, boxShadow:'0 2px 20px rgba(0,0,0,.5)' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <img src="/logo.png" alt="Easy Tech" style={{ height:36, objectFit:'contain' }} onError={e => e.target.style.display='none'} />
+          <span style={{ fontWeight:800, fontSize:16 }}>Easy<span style={{ color:'var(--green)' }}>Tech</span></span>
+        </div>
+
+        <div style={{ display:'flex', gap:4, background:'var(--bg)', borderRadius:10, padding:4, border:'1px solid var(--border)' }}>
+          {[['builder','🖥 Monte seu PC'],['catalog','📦 Catálogo']].map(([p, label]) => (
+            <button key={p} onClick={() => setTab(p)}
+              style={{ padding:'6px 18px', border:'none', borderRadius:7, fontSize:13, fontWeight:500, cursor:'pointer', background:tab===p?'var(--surface2)':'transparent', color:tab===p?'var(--green)':'var(--text2)', transition:'all .18s' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:11, color:syncMsg.color, display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:7, height:7, borderRadius:'50%', background:syncMsg.color, display:'inline-block', boxShadow:`0 0 6px ${syncMsg.color}` }} />
+            {syncMsg.text}
+          </span>
+          <button onClick={loadCatalog} disabled={syncing}
+            style={{ background:'none', border:'1px solid var(--border2)', borderRadius:7, color:'var(--text2)', fontSize:12, padding:'5px 10px', cursor:'pointer' }}>
+            {syncing ? '…' : '↻ Sync'}
+          </button>
+        </div>
+      </header>
+
+      {/* ══ BUILDER ══ */}
+      {tab === 'builder' && (
+        <div className="no-print" style={{ display:'grid', gridTemplateColumns:'260px 1fr 320px', minHeight:'calc(100vh - 60px)' }}>
+
+          {/* ── Sidebar ── */}
+          <aside style={{ background:'var(--surface)', borderRight:'1px solid var(--border)', position:'sticky', top:60, height:'calc(100vh - 60px)', overflowY:'auto' }}>
+            <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--border)', marginBottom:8 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'var(--text3)', marginBottom:6 }}>
+                <span>Progresso</span>
+                <span style={{ color:'var(--green)', fontWeight:600 }}>{progPct}%</span>
+              </div>
+              <div style={{ height:4, background:'var(--surface3)', borderRadius:2, overflow:'hidden' }}>
+                <div style={{ height:'100%', width:`${progPct}%`, background:'var(--green)', borderRadius:2, transition:'width .4s', boxShadow:'0 0 8px rgba(34,197,94,.3)' }} />
+              </div>
+            </div>
+            <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1, color:'var(--text3)', padding:'0 18px 10px' }}>Componentes</div>
+            {STEPS.map((s, i) => {
+              const isActive = i === step
+              const isDone = !!cart[s.key]
+              return (
+                <div key={s.key} onClick={() => { setStep(i); setSearch('') }}
+                  style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 18px', cursor:'pointer', borderLeft:`3px solid ${isActive?'var(--green)':'transparent'}`, background:isActive?'var(--green-dark)':isDone?'rgba(34,197,94,.04)':'transparent', transition:'all .15s' }}>
+                  <div style={{ width:26, height:26, borderRadius:'50%', border:`2px solid ${isActive?'var(--green)':isDone?'var(--green-dim)':'var(--border2)'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, flexShrink:0, color:isActive?'#000':isDone?'var(--green)':'var(--text3)', background:isActive?'var(--green)':isDone?'var(--green-dark)':'transparent', transition:'all .18s' }}>
+                    {isDone && !isActive ? '✓' : i + 1}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:12, fontWeight:600, color:isActive?'var(--green)':isDone?'var(--text)':'var(--text2)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                      {s.icon} {s.label}{!s.required && <span style={{ fontSize:9, opacity:.4 }}> opc.</span>}
+                    </div>
+                    {cart[s.key] && (
+                      <div style={{ fontSize:10, color:'var(--green)', opacity:.8, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', marginTop:1 }}>
+                        {cart[s.key].nome.length > 22 ? cart[s.key].nome.slice(0,22)+'…' : cart[s.key].nome}
+                      </div>
+                    )}
+                  </div>
+                  {isDone && <span style={{ color:'var(--green)', fontSize:12, flexShrink:0 }}>✓</span>}
+                </div>
+              )
+            })}
+          </aside>
+
+          {/* ── Main ── */}
+          <main style={{ padding:28, overflowY:'auto' }}>
+            <div style={{ marginBottom:22 }}>
+              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:1, color:'var(--green)', marginBottom:6 }}>
+                Passo {step+1} de {STEPS.length}
+              </div>
+              <div style={{ fontSize:24, fontWeight:800, letterSpacing:'-.5px' }}>{STEPS[step].label}</div>
+              <div style={{ fontSize:13, color:'var(--text2)', marginTop:6 }}>{STEPS[step].sub}</div>
+            </div>
+
+            {/* Search */}
+            <div style={{ position:'relative', marginBottom:16 }}>
+              <span style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', color:'var(--text3)', pointerEvents:'none' }}>🔎</span>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar produto…"
+                style={{ width:'100%', padding:'10px 14px 10px 36px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }}
+                onFocus={e => e.target.style.borderColor='var(--green)'}
+                onBlur={e => e.target.style.borderColor='var(--border2)'} />
+            </div>
+
+            {/* Grid */}
+            {!stepProds.length ? (
+              <div style={{ textAlign:'center', padding:'48px 24px', color:'var(--text3)', border:'1px dashed var(--border2)', borderRadius:'var(--radius-lg)' }}>
+                <div style={{ fontSize:36, marginBottom:10 }}>{STEPS[step].icon}</div>
+                <div style={{ fontSize:14, marginBottom:8 }}>Nenhum <strong>{STEPS[step].label}</strong> no catálogo</div>
+                <div style={{ fontSize:12 }}>
+                  <span style={{ color:'var(--green)', cursor:'pointer' }} onClick={() => setTab('catalog')}>Cadastre na aba Catálogo</span>
+                  {' '}ou adicione um item avulso abaixo.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(190px,1fr))', gap:12, marginBottom:24 }}>
+                {stepProds.map(p => {
+                  const isSel = cart[STEPS[step].key]?.prodId === p.id
+                  const outOfStock = p.stock !== undefined && p.stock <= 0
+                  return (
+                    <div key={p.id}
+                      onClick={() => !outOfStock && selectProd(p.id)}
+                      style={{ background:isSel?'var(--green-dark)':'var(--surface)', border:`1px solid ${isSel?'var(--green)':'var(--border)'}`, borderRadius:'var(--radius-lg)', padding:14, cursor:outOfStock?'not-allowed':'pointer', opacity:outOfStock?.4:1, position:'relative', transition:'all .2s' }}>
+                      {isSel && <div style={{ position:'absolute', top:10, right:10, background:'var(--green)', color:'#000', borderRadius:'50%', width:20, height:20, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800 }}>✓</div>}
+                      <span style={{ fontSize:22, display:'block', marginBottom:8 }}>{CAT_ICONS[p.cat] || '📦'}</span>
+                      {p.marca && <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:.8, color:'var(--text3)', marginBottom:4 }}>{p.marca}</div>}
+                      <div style={{ fontSize:13, fontWeight:600, lineHeight:1.3, marginBottom:4 }}>{p.nome}</div>
+                      {p.desc && <div style={{ fontSize:11, color:'var(--text3)', marginBottom:8, lineHeight:1.4 }}>{p.desc}</div>}
+                      <div style={{ fontFamily:'DM Mono, monospace', fontSize:13, fontWeight:600, color:'var(--green)' }}>
+                        {fmtBRL(p.preco)} <span style={{ fontSize:10, color:'var(--text3)', fontWeight:400 }}>à vista</span>
+                      </div>
+                      <div style={{ fontSize:10, color:'var(--text3)', marginTop:2 }}>
+                        ou 12x de {fmtBRL((p.prazo || prazoPreco(p.preco)) / 12)}
+                      </div>
+                      {p.stock !== undefined && (
+                        <div style={{ fontSize:10, marginTop:4, fontWeight:700, color:p.stock<=0?'var(--red)':p.stock<=3?'var(--amber)':'var(--text3)' }}>
+                          {p.stock<=0 ? '⚠️ Sem estoque' : p.stock<=3 ? `⚡ ${p.stock} un.` : `✓ ${p.stock} un.`}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Avulso */}
+            <div style={{ border:'1px dashed var(--border2)', borderRadius:'var(--radius-lg)', padding:18, marginTop:4 }}>
+              <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:.6, color:'var(--text3)', marginBottom:12 }}>✏️ Item fora do catálogo</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+                <div>
+                  <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>Descrição</label>
+                  <input value={avNome} onChange={e => setAvNome(e.target.value)} placeholder="Nome do produto"
+                    style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+                </div>
+                <div>
+                  <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>Valor à vista (R$)</label>
+                  <input type="number" value={avPreco} onChange={e => setAvPreco(e.target.value)} placeholder="0,00"
+                    style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+                </div>
+              </div>
+              <button onClick={addAvulso}
+                style={{ background:'transparent', border:'1px solid var(--border2)', borderRadius:'var(--radius)', color:'var(--text2)', fontSize:13, fontWeight:600, padding:'9px 18px', cursor:'pointer' }}>
+                ➕ Adicionar avulso
+              </button>
+            </div>
+
+            {/* Nav */}
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginTop:24, paddingTop:18, borderTop:'1px solid var(--border)' }}>
+              <button onClick={() => { if(step>0){ setStep(s=>s-1); setSearch('') } }} disabled={step===0}
+                style={{ padding:'9px 18px', border:'1px solid var(--border2)', borderRadius:'var(--radius)', background:'transparent', color:'var(--text2)', fontSize:13, fontWeight:600, cursor:step===0?'not-allowed':'pointer', opacity:step===0?.3:1 }}>
+                ← Anterior
+              </button>
+              <span style={{ fontSize:12, color:'var(--text3)' }}>{STEPS[step].required ? '⚠️ Obrigatório' : 'Opcional — pode pular'}</span>
+              <button onClick={() => { if(step<STEPS.length-1){ setStep(s=>s+1); setSearch('') } else showToast('🎉 Configuração concluída!') }}
+                style={{ padding:'9px 22px', border:'none', borderRadius:'var(--radius)', background:'var(--green)', color:'#000', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                {step === STEPS.length-1 ? '✅ Finalizar' : 'Próximo →'}
+              </button>
+            </div>
+          </main>
+
+          {/* ── Cart Panel ── */}
+          <aside style={{ background:'var(--surface)', borderLeft:'1px solid var(--border)', position:'sticky', top:60, height:'calc(100vh - 60px)', display:'flex', flexDirection:'column', overflow:'hidden' }}>
+            <div style={{ padding:16, borderBottom:'1px solid var(--border)', flexShrink:0 }}>
+              <div style={{ fontWeight:800, fontSize:14, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                Resumo <span style={{ fontSize:12, fontWeight:500, color:'var(--text3)' }}>{cartItems.length} itens</span>
+              </div>
+              <div style={{ fontSize:11, color:'var(--text3)', marginTop:2 }}>Itens do orçamento</div>
+            </div>
+
+            <div style={{ flex:1, overflowY:'auto' }}>
+              {!cartItems.length ? (
+                <div style={{ padding:'40px 16px', textAlign:'center', color:'var(--text3)', fontSize:13 }}>
+                  Selecione componentes para montar o orçamento.
+                </div>
+              ) : cartItems.map(item => {
+                const s = STEPS.find(s => s.key === item.cat) || {}
+                return (
+                  <div key={item.cat} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'9px 14px', borderBottom:'1px solid var(--border)' }}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', color:'var(--green)', marginBottom:1 }}>
+                        {s.icon} {item.stepLabel}
+                      </div>
+                      <div style={{ fontSize:12, fontWeight:600, lineHeight:1.3 }}>
+                        {item.nome}{item.avulso && <em style={{ fontSize:10, opacity:.5 }}> avulso</em>}
+                      </div>
+                    </div>
+                    <div style={{ textAlign:'right', flexShrink:0 }}>
+                      <div style={{ fontFamily:'DM Mono,monospace', fontSize:12, color:'var(--text2)' }}>{fmtBRL(item.preco)}</div>
+                      <div style={{ fontSize:10, color:'var(--amber)' }}>{fmtBRL((item.prazo||prazoPreco(item.preco))/12)}/x</div>
+                    </div>
+                    <button onClick={() => removeCart(item.cat)}
+                      style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text3)', fontSize:13, padding:2, lineHeight:1 }}>✕</button>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ borderTop:'1px solid var(--border2)', padding:14, flexShrink:0 }}>
+              {/* Desconto */}
+              <div style={{ display:'flex', gap:6, alignItems:'center', marginBottom:12 }}>
+                <span style={{ fontSize:11, color:'var(--text3)', fontWeight:600 }}>Desc.%</span>
+                <input type="number" value={discPct} onChange={e=>setDiscPct(e.target.value)} placeholder="0"
+                  style={{ width:60, background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:7, padding:'5px 8px', fontFamily:'DM Mono,monospace', fontSize:12, color:'var(--text)', outline:'none' }} />
+                <span style={{ fontSize:11, color:'var(--text3)', fontWeight:600 }}>R$</span>
+                <input type="number" value={discVal} onChange={e=>setDiscVal(e.target.value)} placeholder="0"
+                  style={{ width:70, background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:7, padding:'5px 8px', fontFamily:'DM Mono,monospace', fontSize:12, color:'var(--text)', outline:'none' }} />
+              </div>
+
+              {/* Totais */}
+              {cartItems.length > 0 && <>
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--text2)', marginBottom:4 }}>
+                  <span>Subtotal</span><span style={{ fontFamily:'DM Mono,monospace' }}>{fmtBRL(subtotal)}</span>
+                </div>
+                {desconto > 0 && (
+                  <div style={{ display:'flex', justifyContent:'space-between', fontSize:12, color:'var(--green)', marginBottom:4 }}>
+                    <span>Desconto</span><span style={{ fontFamily:'DM Mono,monospace' }}>− {fmtBRL(desconto)}</span>
+                  </div>
+                )}
+                <div style={{ display:'flex', justifyContent:'space-between', fontSize:16, fontWeight:700, marginTop:10, paddingTop:10, borderTop:'1px solid var(--border)' }}>
+                  <span>Total à vista</span>
+                  <span style={{ fontFamily:'DM Mono,monospace', color:'var(--green)' }}>{fmtBRL(total)}</span>
+                </div>
+                <div style={{ fontSize:11, color:'var(--amber)', textAlign:'right', marginTop:4, fontStyle:'italic' }}>
+                  ou 12x de {fmtBRL(totalPrazo/12)} (total {fmtBRL(totalPrazo)})
+                </div>
+              </>}
+
+              {/* Dados do cliente */}
+              <div style={{ display:'flex', flexDirection:'column', gap:7, margin:'12px 0' }}>
+                {[['nome','👤 Nome do cliente'],['tel','📱 WhatsApp'],['email','✉️ E-mail']].map(([k,ph]) => (
+                  <input key={k} placeholder={ph} value={cli[k]} onChange={e => setCli(c=>({...c,[k]:e.target.value}))}
+                    style={{ width:'100%', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:7, padding:'7px 10px', fontSize:12, color:'var(--text)', outline:'none' }} />
+                ))}
+                <textarea placeholder="📝 Observações…" value={cli.obs} onChange={e => setCli(c=>({...c,obs:e.target.value}))}
+                  style={{ width:'100%', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:7, padding:'7px 10px', fontSize:12, color:'var(--text)', outline:'none', resize:'vertical', minHeight:48 }} />
+              </div>
+
+              <button onClick={exportPDF}
+                style={{ width:'100%', background:'var(--green)', border:'none', borderRadius:'var(--radius)', color:'#000', fontSize:13, fontWeight:700, padding:'10px', cursor:'pointer' }}>
+                📄 Gerar PDF
+              </button>
+              <div style={{ fontSize:10, color:'var(--text3)', textAlign:'center', marginTop:6 }}>Validade: 7 dias</div>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ══ CATALOG ══ */}
+      {tab === 'catalog' && (
+        <div className="no-print" style={{ maxWidth:1200, margin:'0 auto', padding:'28px 24px', display:'grid', gridTemplateColumns:'360px 1fr', gap:24, alignItems:'start' }}>
+
+          {/* Form */}
+          <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ width:26, height:26, borderRadius:7, background:'var(--green-dark)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>➕</div>
+              <span style={{ fontSize:13, fontWeight:700 }}>Cadastrar Produto</span>
+            </div>
+            <div style={{ padding:20 }}>
+              {/* Categoria */}
+              <div style={{ marginBottom:13 }}>
+                <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>Categoria</label>
+                <select value={form.cat} onChange={e => setForm(f=>({...f,cat:e.target.value}))}
+                  style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }}>
+                  {Object.entries(CATEGORIES).map(([grp,cats]) => (
+                    <optgroup key={grp} label={grp}>
+                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              {/* Nome */}
+              <div style={{ marginBottom:13 }}>
+                <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>Nome *</label>
+                <input value={form.nome} onChange={e=>setForm(f=>({...f,nome:e.target.value}))} placeholder="Ex: RTX 5060 8GB"
+                  style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+              </div>
+
+              {/* Marca + Especificações */}
+              {[['marca','Marca','Ex: NVIDIA, ASUS…'],['desc','Especificações','Ex: 8GB GDDR7, PCIe 5.0…']].map(([k,lbl,ph]) => (
+                <div key={k} style={{ marginBottom:13 }}>
+                  <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>{lbl}</label>
+                  <input value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={ph}
+                    style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+                </div>
+              ))}
+
+              {/* Estoque + Custo + Preço */}
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:13 }}>
+                {[['stock','Estoque','1','number'],['custo','Custo (R$)','0,00','number'],['preco','À Vista (R$) *','0,00','number']].map(([k,lbl,ph,type]) => (
+                  <div key={k}>
+                    <label style={{ display:'block', fontSize:10, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.4, marginBottom:5 }}>{lbl}</label>
+                    <input type={type} value={form[k]} onChange={e=>setForm(f=>({...f,[k]:e.target.value}))} placeholder={ph}
+                      style={{ width:'100%', padding:'9px 10px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Preview prazo */}
+              {form.preco && (
+                <div style={{ fontSize:11, color:'var(--green)', marginBottom:12, padding:'8px 12px', background:'var(--green-dark)', borderRadius:7 }}>
+                  À vista: <strong>{fmtBRL(parseFloat(form.preco)||0)}</strong> &nbsp;·&nbsp;
+                  12x de <strong>{fmtBRL(prazoPreco(parseFloat(form.preco)||0)/12)}</strong> (+10%)
+                </div>
+              )}
+
+              <button onClick={addProduct}
+                style={{ width:'100%', background:'var(--green)', border:'none', borderRadius:'var(--radius)', color:'#000', fontSize:13, fontWeight:700, padding:'10px', cursor:'pointer' }}>
+                ➕ Adicionar ao Catálogo
+              </button>
+            </div>
+          </div>
+
+          {/* Tabela */}
+          <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden' }}>
+            <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <div style={{ width:26, height:26, borderRadius:7, background:'var(--green-dark)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12 }}>📋</div>
+                <span style={{ fontSize:13, fontWeight:700 }}>Produtos Cadastrados</span>
+              </div>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:12, color:'var(--text3)' }}>{catalog.length} itens</span>
+                <span style={{ width:1, height:14, background:'var(--border2)' }} />
+                <span style={{ fontSize:11, color:syncMsg.color }}>{syncMsg.text}</span>
+              </div>
+            </div>
+            <div style={{ overflowX:'auto' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                <thead>
+                  <tr>
+                    {['Produto','Categoria','Estoque','Custo','À Vista','12x (+10%)','Margem',''].map(h => (
+                      <th key={h} style={{ textAlign:'left', padding:'10px 14px', fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:.6, color:'var(--text3)', borderBottom:'1px solid var(--border)', background:'var(--surface2)', whiteSpace:'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {!catalog.length ? (
+                    <tr><td colSpan={8} style={{ textAlign:'center', padding:40, color:'var(--text3)' }}>Nenhum produto cadastrado</td></tr>
+                  ) : catalog.map((p, i) => {
+                    const prazo = p.prazo || prazoPreco(p.preco)
+                    const margem = p.custo > 0 ? Math.round(((p.preco - p.custo) / p.preco) * 100) : null
+                    const margemColor = margem === null ? 'var(--text3)' : margem >= 30 ? 'var(--green)' : margem >= 15 ? 'var(--amber)' : 'var(--red)'
+                    const stockColor = !p.stock ? 'var(--red)' : p.stock <= 3 ? 'var(--amber)' : 'var(--green)'
+                    return (
+                      <tr key={p.id} style={{ background:i%2===0?'transparent':'rgba(255,255,255,.02)' }}>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)' }}>
+                          <div style={{ fontWeight:600 }}>{CAT_ICONS[p.cat]||'📦'} {p.nome}</div>
+                          {p.marca && <div style={{ fontSize:11, color:'var(--text3)' }}>{p.marca}</div>}
+                          {p.desc  && <div style={{ fontSize:11, color:'var(--text3)', maxWidth:200, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{p.desc}</div>}
+                        </td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)' }}>
+                          <span style={{ display:'inline-block', padding:'2px 9px', borderRadius:20, fontSize:11, fontWeight:600, background:'var(--green-dark)', color:'var(--green)' }}>{p.cat}</span>
+                        </td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontWeight:700, color:stockColor }}>{p.stock ?? '—'} un</td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontFamily:'DM Mono,monospace', color:'var(--text3)' }}>{p.custo > 0 ? fmtBRL(p.custo) : '—'}</td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontFamily:'DM Mono,monospace', color:'var(--green)', fontWeight:700 }}>{fmtBRL(p.preco)}</td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontFamily:'DM Mono,monospace', color:'var(--amber)', fontSize:12 }}>{fmtBRL(prazo/12)}/x</td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontWeight:700, color:margemColor }}>{margem !== null ? `${margem}%` : '—'}</td>
+                        <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)' }}>
+                          <button onClick={() => deleteProduct(p.id)}
+                            style={{ background:'transparent', border:'1px solid rgba(239,68,68,.2)', borderRadius:7, color:'var(--red)', fontSize:12, padding:'4px 10px', cursor:'pointer' }}>🗑</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </>
+  )
+}
