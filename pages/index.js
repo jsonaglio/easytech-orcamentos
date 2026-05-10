@@ -63,6 +63,29 @@ export default function Home() {
   // ── Catalog form state
   const [form, setForm] = useState({ nome:'', cat:'Placa-Mãe', marca:'', desc:'', stock:'1', custo:'', preco:'' })
 
+  // ── Modal de edição
+  const [editModal, setEditModal] = useState(null) // produto sendo editado ou null
+  const [editForm, setEditForm] = useState({})
+
+  const openEdit = (p) => {
+    setEditForm({ nome:p.nome, cat:p.cat, marca:p.marca||'', desc:p.desc||'', stock:String(p.stock||0), custo:String(p.custo||''), preco:String(p.preco) })
+    setEditModal(p)
+  }
+
+  const saveEdit = async () => {
+    if (!editForm.nome || !editForm.preco) { showToast('⚠️ Nome e preço são obrigatórios'); return }
+    const preco = parseFloat(editForm.preco)
+    const updated = { ...editModal, ...editForm, preco, prazo: prazoPreco(preco), custo: parseFloat(editForm.custo)||0, stock: parseInt(editForm.stock)||0 }
+    setCatalog(c => c.map(p => p.id === updated.id ? updated : p))
+    setEditModal(null)
+    showToast('✅ Produto atualizado!')
+    setSync('syncing')
+    try {
+      await fetch('/api/produtos', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(updated) })
+      setSync('ok', `${updated.nome} salvo`)
+    } catch { setSync('error','Erro ao salvar') }
+  }
+
   // ── Toast
   const showToast = useCallback((msg) => {
     setToast(msg)
@@ -219,13 +242,23 @@ export default function Home() {
     // ── helpers ──
     const hex = (h) => {
       const r = parseInt(h.slice(1,3),16), g = parseInt(h.slice(3,5),16), b = parseInt(h.slice(5,7),16)
-      return [r/255, g/255, b/255]
+      return [r, g, b]  // jsPDF espera 0-255
     }
-    const fill  = (h) => doc.setFillColor(...hex(h))
-    const stroke= (h) => doc.setDrawColor(...hex(h))
-    const color = (h) => doc.setTextColor(...hex(h))
+    const fill  = (h) => { const [r,g,b] = hex(h); doc.setFillColor(r,g,b) }
+    const stroke= (h) => { const [r,g,b] = hex(h); doc.setDrawColor(r,g,b) }
+    const color = (h) => { const [r,g,b] = hex(h); doc.setTextColor(r,g,b) }
     const rect  = (x,y,w,h,r=0) => r ? doc.roundedRect(x,y,w,h,r,r,'F') : doc.rect(x,y,w,h,'F')
-    const text  = (t,x,y,opts={}) => doc.text(t,x,y,opts)
+    const text  = (t,x,y,opts={}) => doc.text(String(t),x,y,opts)
+
+    // Carrega logo uma vez
+    let logoB64 = null
+    try {
+      const res = await fetch('/logo.png')
+      const blob = await res.blob()
+      logoB64 = await new Promise(r => {
+        const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(blob)
+      })
+    } catch {}
 
     // ── BG ──
     fill('#0D0D0D'); rect(0,0,W,H)
@@ -235,13 +268,8 @@ export default function Home() {
     fill('#1A1A1A'); rect(0, hdrY, W, HDR_H)
     fill('#22C55E'); rect(0, hdrY, W, 3)
 
-    // Logo
-    try {
-      const logoRes = await fetch('/logo.png')
-      const blob = await logoRes.blob()
-      const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(blob) })
-      doc.addImage(b64, 'PNG', M, hdrY + 14, 82, 82)
-    } catch {}
+    // Logo header
+    if (logoB64) doc.addImage(logoB64, 'PNG', M, hdrY + 14, 82, 82)
 
     // Nome EASYTECH com tracking
     doc.setFont('helvetica','bold'); doc.setFontSize(30)
@@ -357,13 +385,8 @@ export default function Home() {
     fill('#1A1A1A'); rect(0, 0, W, FTR_H)
     fill('#22C55E'); rect(0, FTR_H - 2, W, 2)
 
-    // Mini logo no footer
-    try {
-      const logoRes = await fetch('/logo.png')
-      const blob = await logoRes.blob()
-      const b64 = await new Promise(r => { const rd = new FileReader(); rd.onload=e=>r(e.target.result); rd.readAsDataURL(blob) })
-      doc.addImage(b64, 'PNG', M, 12, 44, 44)
-    } catch {}
+    // Mini logo footer
+    if (logoB64) doc.addImage(logoB64, 'PNG', M, 12, 44, 44)
 
     doc.setFont('helvetica','bold'); doc.setFontSize(9)
     color('#F0F0F0'); text('EASYTECH STORE', M + 54, 38)
@@ -772,8 +795,12 @@ export default function Home() {
                         <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontFamily:'DM Mono,monospace', color:'var(--amber)', fontSize:12 }}>{fmtBRL(prazo/12)}/x</td>
                         <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)', fontWeight:700, color:margemColor }}>{margem !== null ? `${margem}%` : '—'}</td>
                         <td style={{ padding:'11px 14px', borderBottom:'1px solid var(--border)' }}>
-                          <button onClick={() => deleteProduct(p.id)}
-                            style={{ background:'transparent', border:'1px solid rgba(239,68,68,.2)', borderRadius:7, color:'var(--red)', fontSize:12, padding:'4px 10px', cursor:'pointer' }}>🗑</button>
+                          <div style={{ display:'flex', gap:6 }}>
+                            <button onClick={() => openEdit(p)}
+                              style={{ background:'transparent', border:'1px solid rgba(34,197,94,.2)', borderRadius:7, color:'var(--green)', fontSize:12, padding:'4px 10px', cursor:'pointer' }}>✏️</button>
+                            <button onClick={() => deleteProduct(p.id)}
+                              style={{ background:'transparent', border:'1px solid rgba(239,68,68,.2)', borderRadius:7, color:'var(--red)', fontSize:12, padding:'4px 10px', cursor:'pointer' }}>🗑</button>
+                          </div>
                         </td>
                       </tr>
                     )
@@ -785,6 +812,67 @@ export default function Home() {
         </div>
       )}
 
+      {/* ══ MODAL EDIÇÃO ══ */}
+      {editModal && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.75)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+          <div style={{ background:'var(--surface)', border:'1px solid var(--border2)', borderRadius:16, padding:28, width:520, maxWidth:'95vw', maxHeight:'90vh', overflowY:'auto' }}>
+            <div style={{ fontWeight:800, fontSize:16, marginBottom:4 }}>✏️ Editar Produto</div>
+            <div style={{ fontSize:12, color:'var(--text2)', marginBottom:20 }}>{editModal.nome}</div>
+
+            {/* Categoria */}
+            <div style={{ marginBottom:13 }}>
+              <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>Categoria</label>
+              <select value={editForm.cat} onChange={e=>setEditForm(f=>({...f,cat:e.target.value}))}
+                style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }}>
+                {Object.entries(CATEGORIES).map(([grp,cats]) => (
+                  <optgroup key={grp} label={grp}>
+                    {cats.map(c => <option key={c} value={c}>{c}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+
+            {/* Nome + Marca + Desc */}
+            {[['nome','Nome *',''],['marca','Marca',''],['desc','Especificações','']].map(([k,lbl]) => (
+              <div key={k} style={{ marginBottom:13 }}>
+                <label style={{ display:'block', fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.5, marginBottom:5 }}>{lbl}</label>
+                <input value={editForm[k]} onChange={e=>setEditForm(f=>({...f,[k]:e.target.value}))}
+                  style={{ width:'100%', padding:'9px 12px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+              </div>
+            ))}
+
+            {/* Estoque + Custo + Preço */}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8, marginBottom:13 }}>
+              {[['stock','Estoque'],['custo','Custo (R$)'],['preco','À Vista (R$) *']].map(([k,lbl]) => (
+                <div key={k}>
+                  <label style={{ display:'block', fontSize:10, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:.4, marginBottom:5 }}>{lbl}</label>
+                  <input type="number" value={editForm[k]} onChange={e=>setEditForm(f=>({...f,[k]:e.target.value}))}
+                    style={{ width:'100%', padding:'9px 10px', background:'var(--surface2)', border:'1px solid var(--border2)', borderRadius:'var(--radius)', fontSize:13, color:'var(--text)', outline:'none' }} />
+                </div>
+              ))}
+            </div>
+
+            {/* Preview */}
+            {editForm.preco && (
+              <div style={{ fontSize:11, color:'var(--green)', marginBottom:16, padding:'8px 12px', background:'var(--green-dark)', borderRadius:7 }}>
+                À vista: <strong>{fmtBRL(parseFloat(editForm.preco)||0)}</strong> &nbsp;·&nbsp;
+                12x de <strong>{fmtBRL(prazoPreco(parseFloat(editForm.preco)||0)/12)}</strong> (+10%)
+              </div>
+            )}
+
+            <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
+              <button onClick={() => setEditModal(null)}
+                style={{ padding:'9px 20px', border:'1px solid var(--border2)', borderRadius:'var(--radius)', background:'transparent', color:'var(--text2)', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                Cancelar
+              </button>
+              <button onClick={saveEdit}
+                style={{ padding:'9px 20px', border:'none', borderRadius:'var(--radius)', background:'var(--green)', color:'#000', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                💾 Salvar alterações
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }
