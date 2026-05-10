@@ -1,0 +1,17 @@
+<svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="10" width="56" height="44" rx="5" stroke="#22C55E" stroke-width="2.5"/>
+  <rect x="10" y="18" width="20" height="18" rx="2" stroke="#22C55E" stroke-width="2"/>
+  <text x="20" y="30" text-anchor="middle" font-size="8" font-weight="700" fill="#22C55E" font-family="monospace">SSD</text>
+  <line x1="36" y1="20" x2="54" y2="20" stroke="#22C55E" stroke-width="2" stroke-linecap="round"/>
+  <line x1="36" y1="26" x2="54" y2="26" stroke="#22C55E" stroke-width="2" stroke-linecap="round"/>
+  <line x1="36" y1="32" x2="54" y2="32" stroke="#22C55E" stroke-width="2" stroke-linecap="round"/>
+  <line x1="36" y1="38" x2="54" y2="38" stroke="#22C55E" stroke-width="2" stroke-linecap="round"/>
+  <rect x="10" y="42" width="44" height="6" rx="1.5" stroke="#22C55E" stroke-width="1.8"/>
+  <line x1="16" y1="42" x2="16" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="21" y1="42" x2="21" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="26" y1="42" x2="26" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="31" y1="42" x2="31" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="36" y1="42" x2="36" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="41" y1="42" x2="41" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+  <line x1="46" y1="42" x2="46" y2="48" stroke="#22C55E" stroke-width="1.2"/>
+</svg>
