@@ -11,6 +11,8 @@ const CAT_ICON_B64 = {
   motherboard: '/icons/motherboard.svg', cpu: '/icons/cpu.svg',
   ram: '/icons/ram.svg', gpu: '/icons/gpu.svg', ssd: '/icons/ssd.svg',
   psu: '/icons/psu.svg', gabinete: '/icons/gabinete.svg', cooler: '/icons/cooler.svg',
+  monitor: '/icons/monitor.svg', teclado: '/icons/teclado.svg',
+  mouse: '/icons/mouse.svg', headset: '/icons/headset.svg', montagem: '/icons/montagem.svg',
 }
 
 const CatIcon = ({ cat, size=20, style={} }) => {
@@ -19,9 +21,12 @@ const CatIcon = ({ cat, size=20, style={} }) => {
     'Memória RAM': CAT_ICON_B64.ram, 'Placa de Vídeo': CAT_ICON_B64.gpu,
     'Armazenamento': CAT_ICON_B64.ssd, 'Fonte': CAT_ICON_B64.psu,
     'Gabinete': CAT_ICON_B64.gabinete, 'Cooler': CAT_ICON_B64.cooler,
+    'Monitor': CAT_ICON_B64.monitor, 'Teclado': CAT_ICON_B64.teclado,
+    'Mouse': CAT_ICON_B64.mouse, 'Headset': CAT_ICON_B64.headset,
+    'Montagem': CAT_ICON_B64.montagem,
   }
   const src = map[cat]
-  const fallback = { 'Monitor':'🖥','Teclado':'⌨️','Mouse':'🖱','Headset':'🎧','Webcam':'📸','Mousepad':'🖱','Notebook':'💻','Smartphone':'📱','Montagem':'🛠','Instalação SO':'💾','Manutenção':'🔩','Acessório':'🔗','Outro':'📦' }
+  const fallback = { 'Webcam':'📸','Mousepad':'🖱','Notebook':'💻','Smartphone':'📱','Instalação SO':'💾','Manutenção':'🔩','Acessório':'🔗','Outro':'📦' }
   if (src) return <img src={src} alt={cat} style={{ width:size, height:size, objectFit:'contain', ...style }} />
   return <span style={{ fontSize:size, ...style }}>{fallback[cat]||'📦'}</span>
 }
