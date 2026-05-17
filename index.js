@@ -111,21 +111,37 @@ export default function Home() {
 
   const deleteProduct = async (id) => { setCatalog(c=>c.filter(p=>p.id!==id)); showToast('🗑 Removido'); try { await fetch(`/api/produtos/${id}`,{method:'DELETE'}) } catch {} }
 
+  // ALTERADO: adiciona qty:1 ao item do carrinho
   const selectProd = (prodId) => {
     const s=STEPS[step]; const prod=catalog.find(p=>p.id===prodId); if (!prod) return
-    setCart(c=>{const nc={...c}; if(nc[s.key]?.prodId===prodId) delete nc[s.key]; else nc[s.key]={prodId,nome:prod.nome,preco:prod.preco,prazo:prod.prazo||prazoPreco(prod.preco),desc:prod.desc,marca:prod.marca,cat:s.key,avulso:false}; return nc}); setSearch('')
+    setCart(c=>{const nc={...c}; if(nc[s.key]?.prodId===prodId) delete nc[s.key]; else nc[s.key]={prodId,nome:prod.nome,preco:prod.preco,prazo:prod.prazo||prazoPreco(prod.preco),desc:prod.desc,marca:prod.marca,cat:s.key,avulso:false,qty:1}; return nc}); setSearch('')
   }
 
+  // ALTERADO: adiciona qty:1 ao item avulso
   const addAvulso = () => {
     if (!avNome.trim()||!avPreco) { showToast('⚠️ Preencha nome e valor'); return }
     const preco=parseFloat(avPreco); const s=STEPS[step]
-    setCart(c=>({...c,[s.key]:{prodId:null,nome:avNome.trim(),preco,prazo:prazoPreco(preco),desc:'',marca:'',cat:s.label,avulso:true}})); setAvNome(''); setAvPreco(''); showToast(`✅ ${avNome} adicionado`)
+    setCart(c=>({...c,[s.key]:{prodId:null,nome:avNome.trim(),preco,prazo:prazoPreco(preco),desc:'',marca:'',cat:s.label,avulso:true,qty:1}})); setAvNome(''); setAvPreco(''); showToast(`✅ ${avNome} adicionado`)
   }
 
   const removeCart = (key) => setCart(c=>{const nc={...c};delete nc[key];return nc})
+
+  // Helper para alterar quantidade
+  const changeQty = (key, delta) => {
+    setCart(c => {
+      const item = c[key]
+      if (!item) return c
+      const newQty = (item.qty || 1) + delta
+      if (newQty <= 0) { const nc={...c}; delete nc[key]; return nc }
+      return { ...c, [key]: { ...item, qty: newQty } }
+    })
+  }
+
   const cartItems = STEPS.filter(s=>cart[s.key]).map(s=>({...cart[s.key],stepLabel:s.label}))
-  const subtotal = cartItems.reduce((a,c)=>a+c.preco,0)
-  const subtotalPrazo = cartItems.reduce((a,c)=>a+(c.prazo||prazoPreco(c.preco)),0)
+
+  // ALTERADO: multiplica por qty
+  const subtotal = cartItems.reduce((a,c)=>a+c.preco*(c.qty||1),0)
+  const subtotalPrazo = cartItems.reduce((a,c)=>a+(c.prazo||prazoPreco(c.preco))*(c.qty||1),0)
   const desconto = Math.max(parseFloat(discVal)||0,subtotal*(parseFloat(discPct)||0)/100)
   const total = Math.max(0,subtotal-desconto)
   const totalPrazo = Math.max(0,subtotalPrazo-desconto*(1+TAXA_PRAZO))
@@ -161,10 +177,16 @@ export default function Home() {
     fill('#1E1E1E');strk('#2A2A2A');doc.setLineWidth(1);doc.roundedRect(M,BOX_Y,W-2*M,BOX_H,5,5,'FD')
     let iy=BOX_Y+24
     cartItems.forEach((item,i)=>{
+      const qty = item.qty || 1
+      const itemPreco = item.preco * qty
+      const itemPrazo = (item.prazo || prazoPreco(item.preco)) * qty
       doc.setFont('helvetica','bold');doc.setFontSize(8);clr('#22C55E');txt(item.stepLabel.toUpperCase(),M+12,iy-10)
-      doc.setFont('helvetica','bold');doc.setFontSize(10);clr('#F0F0F0');txt(safe(item.nome)+(item.marca?' - '+safe(item.marca):''),M+12,iy)
-      const prazo=item.prazo||prazoPreco(item.preco);clr('#22C55E');doc.setFontSize(10)
-      const pStr=fmtBRL(item.preco);txt(pStr,W-M-12-doc.getTextWidth(pStr),iy)
+      doc.setFont('helvetica','bold');doc.setFontSize(10);clr('#F0F0F0')
+      // ALTERADO: mostra quantidade no nome se > 1
+      const nomeExibido = safe(item.nome)+(item.marca?' - '+safe(item.marca):'')+(qty>1?` (x${qty})`:'')
+      txt(nomeExibido,M+12,iy)
+      const prazo=itemPrazo;clr('#22C55E');doc.setFontSize(10)
+      const pStr=fmtBRL(itemPreco);txt(pStr,W-M-12-doc.getTextWidth(pStr),iy)
       clr('#A0A0A0');doc.setFont('helvetica','normal');doc.setFontSize(8);const iStr='12x '+fmtBRL(prazo/12);txt(iStr,W-M-12-doc.getTextWidth(iStr),iy+13)
       if(i<cartItems.length-1){fill('#2A2A2A');box(M+12,iy+20,W-2*M-24,0.5)};iy+=ITEM_ROW_H
     })
@@ -229,7 +251,7 @@ export default function Home() {
                 <div style={{width:26,height:26,borderRadius:'50%',border:`2px solid ${isActive?'var(--green)':isDone?'var(--green-dim)':'var(--border2)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0,color:isActive?'#000':isDone?'var(--green)':'var(--text3)',background:isActive?'var(--green)':isDone?'var(--green-dark)':'transparent'}}>{isDone&&!isActive?'✓':i+1}</div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:12,fontWeight:600,color:isActive?'var(--green)':isDone?'var(--text)':'var(--text2)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',display:'flex',alignItems:'center',gap:6}}><CatIcon cat={s.key} size={14}/>{s.label}{!s.required&&<span style={{fontSize:9,opacity:.4}}>opc.</span>}</div>
-                  {cart[s.key]&&<div style={{fontSize:10,color:'var(--green)',opacity:.8,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',marginTop:1}}>{cart[s.key].nome.slice(0,22)}{cart[s.key].nome.length>22&&'…'}</div>}
+                  {cart[s.key]&&<div style={{fontSize:10,color:'var(--green)',opacity:.8,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',marginTop:1}}>{cart[s.key].nome.slice(0,22)}{cart[s.key].nome.length>22&&'…'}{(cart[s.key].qty||1)>1&&<span style={{marginLeft:4,background:'var(--green)',color:'#000',borderRadius:4,padding:'0 4px',fontSize:9,fontWeight:700}}>x{cart[s.key].qty}</span>}</div>}
                 </div>
                 {isDone&&<span style={{color:'var(--green)',fontSize:12}}>✓</span>}
               </div>
@@ -290,17 +312,32 @@ export default function Home() {
             </div>
             <div style={{flex:1,overflowY:'auto'}}>
               {!cartItems.length?<div style={{padding:'40px 16px',textAlign:'center',color:'var(--text3)',fontSize:13}}>Selecione componentes para montar o orçamento.</div>
-              :cartItems.map(item=>{const s=STEPS.find(s=>s.key===item.cat)||{};return(
+              :cartItems.map(item=>{
+                const qty = item.qty || 1
+                return(
                 <div key={item.cat} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'9px 14px',borderBottom:'1px solid var(--border)'}}>
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:10,fontWeight:700,textTransform:'uppercase',color:'var(--green)',marginBottom:1,display:'flex',alignItems:'center',gap:4}}><CatIcon cat={item.cat} size={12}/>{item.stepLabel}</div>
                     <div style={{fontSize:12,fontWeight:600,lineHeight:1.3}}>{item.nome}{item.avulso&&<em style={{fontSize:10,opacity:.5}}> avulso</em>}</div>
                   </div>
                   <div style={{textAlign:'right',flexShrink:0}}>
-                    <div style={{fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text2)'}}>{fmtBRL(item.preco)}</div>
-                    <div style={{fontSize:10,color:'var(--amber)'}}>{fmtBRL((item.prazo||prazoPreco(item.preco))/12)}/x</div>
+                    {/* ALTERADO: mostra preço total se qty > 1 */}
+                    <div style={{fontFamily:'DM Mono,monospace',fontSize:12,color:'var(--text2)'}}>{fmtBRL(item.preco * qty)}</div>
+                    {qty > 1 && <div style={{fontSize:10,color:'var(--text3)'}}>{fmtBRL(item.preco)} × {qty}</div>}
+                    <div style={{fontSize:10,color:'var(--amber)'}}>{fmtBRL((item.prazo||prazoPreco(item.preco))*qty/12)}/x</div>
                   </div>
-                  <button onClick={()=>removeCart(item.cat)} style={{background:'none',border:'none',cursor:'pointer',color:'var(--text3)',fontSize:13,padding:2,lineHeight:1}}>✕</button>
+                  {/* ALTERADO: controle de quantidade substituindo o botão ✕ */}
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,flexShrink:0}}>
+                    <button
+                      onClick={()=>changeQty(item.cat, 1)}
+                      style={{background:'var(--surface3)',border:'1px solid var(--border2)',borderRadius:5,color:'var(--text)',fontSize:12,width:22,height:22,cursor:'pointer',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}
+                    >+</button>
+                    <span style={{fontFamily:'DM Mono,monospace',fontSize:11,color:'var(--text2)',fontWeight:700,minWidth:16,textAlign:'center'}}>{qty}</span>
+                    <button
+                      onClick={()=>changeQty(item.cat, -1)}
+                      style={{background:'var(--surface3)',border:`1px solid ${qty<=1?'rgba(239,68,68,.3)':'var(--border2)'}`,borderRadius:5,color:qty<=1?'var(--red)':'var(--text)',fontSize:12,width:22,height:22,cursor:'pointer',lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}
+                    >{qty<=1?'✕':'−'}</button>
+                  </div>
                 </div>
               )})}
             </div>
